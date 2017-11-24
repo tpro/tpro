@@ -1,0 +1,75 @@
+---
+- hosts: "{{ env }}"
+  remote_user: infakt
+
+  vars:
+    application_name: accountant_panel
+    destination_dir: "/srv/{{ application_name }}"
+    ruby_version: "2.4.0"
+
+  tasks:
+    - name: Create app directory
+      file:
+        path: "{{ destination_dir }}"
+        state: directory
+      tags:
+        - provision
+
+    - name: Prepare ~/.gemrc
+      lineinfile:
+        state: present
+        create: true
+        line: "gem: --no-rdoc --no-ri"
+        name: "{{ ansible_env.HOME }}/.gemrc"
+      tags:
+        - provision
+
+    - name: Install rbenv
+      git:
+        repo: https://github.com/rbenv/rbenv.git
+        dest: "{{ ansible_env.HOME }}/.rbenv"
+      tags:
+        - provision
+        - rbenv
+
+    - name: Install ruby-install rbenv plugin
+      git:
+        repo: https://github.com/rbenv/ruby-build.git
+        dest: "{{ ansible_env.HOME }}/.rbenv/plugins/ruby-build"
+      tags:
+        - provision
+        - rbenv
+
+    - name: Prepare .bash_profile entries
+      blockinfile:
+        state: present
+        create: true
+        marker: "# ---------- {mark} rbenv entries ----------"
+        block: |
+          export PATH=$HOME/.rbenv/bin:$PATH
+          eval "$(rbenv init -)"
+        name: "{{ ansible_env.HOME }}/.bash_profile"
+      tags:
+        - provision
+        - rbenv
+
+    - name: Check if ruby installed
+      command: "/bin/bash -lc 'rbenv versions --bare'"
+      register: installed_ruby_versions
+      tags:
+        - provision
+        - rbenv
+
+    - name: Install Ruby
+      command: "/bin/bash -lc 'rbenv install {{ ruby_version }}'"
+      tags:
+        - provision
+        - rbenv
+      when: installed_ruby_versions.stdout.find(ruby_version) == -1
+
+    - name: Install bundler
+      command: "/bin/bash -lc 'RBENV_VERSION={{ ruby_version }} gem install bundler'"
+      tags:
+        - provision
+        - rbenv
+

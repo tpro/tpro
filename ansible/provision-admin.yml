@@ -1,0 +1,111 @@
+# vim: ft=ansible
+---
+- hosts: "{{ env }}"
+  become: True
+  gather_facts: True
+  roles:
+    - common
+    
+  vars:
+    routed_domain: "{{ domain }}"
+    app_name: accountantpanel
+    base_dir: "/srv/{{ app_name }}"
+    socket_path: /tmp/ap-unicorn.sock
+
+  tasks:
+    - name: Update cache if older than 1h
+      apt: update_cache=yes cache_valid_time=86400
+
+    - name: add infakt user
+      user:
+        name: infakt
+        state: present
+        shell: /bin/bash
+        password: "!feBoruiEGzEOPGEPe8"
+        append: yes
+
+    - name: set infakt ssh keys
+      authorized_key:
+        user=infakt
+        key="{{ item }}"
+      with_file: file/infakt_developers_ssh_keys
+
+    - name: create srv dir
+      file:
+        state: directory
+        path: /srv/accountant_panel
+        mode: 755
+        owner: infakt
+
+    - name: Import PostgreSQL repo key
+      apt_key:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
+
+    - name: Add PostgreSQL repository
+      apt_repository:
+        repo: 'deb http://apt.postgresql.org/pub/repos/apt/ {{ansible_distribution_release}}-pgdg main'
+        state: present
+        filename: 'pgdg'
+
+    - name: add apt : nginx
+      apt_repository:
+        repo: 'ppa:nginx/stable'
+
+        #    - name: add apt nodejs 
+
+    - name: install required packages
+      apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: yes
+      with_items:
+        - nginx
+        - postgresql-client-9.4
+        - libpq-dev     # zależność dla gema pg używnego przez infakt
+        - libxslt-dev   # zależność dla gemów
+        - libxml2-dev   # zależność dla gemów
+        - zlib1g-dev
+        - libssl-dev
+        - libyaml-dev
+        - libsqlite3-dev
+        - sqlite3
+        - libgmp-dev
+        - libgdbm-dev
+        - libncurses5-dev
+      tags: 
+        - apt
+
+    - name: Generate {{ env }} config file to nginx
+      template:
+        src: templates/{{ item }}
+        dest: /etc/nginx/sites-available/{{ item }}
+        backup: yes
+      with_items: 
+        - 10.accountant-panel.conf
+      tags:
+        - nginx
+
+    - name: nginx link to enabled
+      file:
+        state: link
+        src: /etc/nginx/sites-available/{{ item }}
+        dest: /etc/nginx/sites-enabled/{{ item }}
+      with_items:
+        - 10.accountant-panel.conf
+      tags:
+        - nginx
+      notify: reload nginx
+
+    - name: Check nginx config
+      command: nginx -t
+      register: nginx_test
+      tags:
+        - nginx
+      notify: reload nginx
+
+  handlers:
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded

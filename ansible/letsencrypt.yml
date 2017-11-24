@@ -1,0 +1,57 @@
+# vim: ft=ansible
+#
+---
+- name: letsencrypt  
+  hosts: "{{ env }}"
+  become: True
+  gather_facts: True
+
+  vars:
+    letsencrypt_email: tomasz.proc@gmail.com
+    letsencrypt_domain_flags:
+      - "-d {{ domain }}"
+
+  tasks:
+  - name: install certbot dependencies
+    apt: name={{ item }} state=present
+    with_items:
+      - build-essential
+      - libssl-dev
+      - libffi-dev
+      - python-dev
+      - git
+      - python-pip
+      - python-virtualenv
+      - dialog
+      - libaugeas0
+      - ca-certificates
+  - name: install Python cryptography module
+    pip: name=cryptography
+
+  - name: create LE dir
+    file: 
+      state: directory 
+      path: "/tmp/letsencrypt" 
+
+  - name: download certbot
+    get_url: >
+      url=https://dl.eff.org/certbot-auto
+      dest=/opt/certbot-auto
+      mode=755
+
+  - name: chcek if we've generated a cert already
+    stat: path=/etc/letsencrypt/live/{{ domain }}/fullchain.pem
+    register: cert_stats
+
+  - name: generate certs first
+    shell: "/opt/certbot-auto certonly --standalone {{ letsencrypt_domain_flags | join('-d ') }} --email {{ letsencrypt_email }} --non-interactive --agree-tos"
+    when: cert_stats.stat.exists == False
+
+  #
+  - name: generate certs again
+    shell: "/opt/certbot-auto certonly --webroot -w /tmp/letsencrypt {{ letsencrypt_domain_flags | join(' ') }} --email {{ letsencrypt_email }} --non-interactive --agree-tos"
+    when: cert_stats.stat.exists == True
+
+  - name: restart nginx
+    service: name=nginx state=restart
+
